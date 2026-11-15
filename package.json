@@ -1,0 +1,5 @@
+{
+  "name": "codesyntax-online-code-validation",
+  "private": true,
+  "scripts": {"dev:backend":"npm --prefix backend run dev", "dev:frontend":"npm --prefix frontend run dev", "build":"npm --prefix frontend run build"}
+}
