@@ -4,7 +4,7 @@ Academic MERN project demonstrating full stack development, computer networks, a
 
 ## Requirements
 
-- Node.js 20+
+- Node.js 22.19+
 - MongoDB Atlas URI or local MongoDB
 
 ## Run locally
@@ -31,7 +31,7 @@ Open http://localhost:5173. Registration creates student accounts. To grant an a
 
 - React Router application, responsive dark workspace, Monaco editor, account pages, and authenticated dashboard.
 - JWT sessions, bcrypt password hashing, role checks, owner-scoped submission history, MongoDB stats, and account controls.
-- Configured non-executing syntax parsers: Babel JavaScript/TypeScript, parse5 HTML, PostCSS CSS. All other listed languages report unsupported, with no false syntax verdict.
+- Non-executing parser adapters for all 12 editor languages: Babel JavaScript/TypeScript, parse5 HTML, PostCSS CSS, Tree-sitter WASM Python/C/C++/Java/C#/Go, PHP-Parser PHP, and pgsql-ast-parser for PostgreSQL SQL. The SQL dialect is stated in the language picker.
 - JavaScript subset lexical analyzer; arithmetic expression recursive descent parser with grammar, located errors, reduction trace, and AST.
 - Client request telemetry, MongoDB API logs, health endpoints, and client/server/parser flow diagram.
 - ZIP project analyzer: in-memory inspection, 10 MB archive limit, 1,500 entries, 50 MB expanded size, compression-ratio bound, path traversal rejection, file allowlist, project report, and persisted per-user reports. Uploaded content is never executed or extracted to disk.
@@ -40,11 +40,15 @@ Open http://localhost:5173. Registration creates student accounts. To grant an a
 
 Frontend: deploy `frontend` as the Vercel root, framework Vite, build command `npm run build`, output `dist`, and set `VITE_API_URL` to the Render API `/api` URL.
 
-Backend: deploy `backend` as a Render Node web service with build command `npm install`, start command `npm start`, health check path `/health`; set `MONGODB_URI`, `JWT_SECRET`, `CLIENT_ORIGIN` (the Vercel origin), and `PORT` as needed. Keep `.env` files out of source control.
+Backend: deploy `backend` as a Render Node web service with build command `npm install`, start command `npm start`, health check path `/health`; use Node.js `>=22.19.0 <25` (set `NODE_VERSION` in Render if needed), and set `MONGODB_URI`, `JWT_SECRET`, `CLIENT_ORIGIN` (the Vercel origin), and `PORT` as needed. Keep `.env` files out of source control.
 
-## Current parser scope
+## Parser scope and tests
 
-JavaScript/TypeScript parsing checks syntactic structure through Babel and HTML/CSS through their configured parsers. This does not compile, execute code, or claim static analysis beyond parser diagnostics. The FLAT lab grammar is `E → T E′`, `E′ → + T E′ | - T E′ | ε`, `T → F T′`, `T′ → * F T′ | / F T′ | ε`, `F → ( E ) | id | number`. The predictive recursive descent uses call-stack state as its pushdown stack and reports match/reduction steps.
+The editor requests `/api/languages` and displays each server parser's configured state. Parser errors return a consistent status, engine name, error count, source location, and bounded AST or concrete syntax tree. Syntax validation never compiles or executes submitted code. HTML follows parse5's HTML error recovery; it reports tokenizer/tree-construction parse errors but does not treat ordinary HTML omissions such as a missing doctype as syntax failure. SQL currently means PostgreSQL grammar, not every vendor's dialect. Tree-sitter AST output is a bounded concrete syntax tree; other parsers return a compact AST/parse tree.
+
+Run `npm test` in `backend` for API-level valid/invalid cases for all 12 parsers, including exact error locations. The tests use loopback HTTP requests and require local socket permission. Run `npm run build` in `frontend` for the production build.
+
+The FLAT lab grammar is `E → T E′`, `E′ → + T E′ | - T E′ | ε`, `T → F T′`, `T′ → * F T′ | / F T′ | ε`, `F → ( E ) | id | number`. The predictive recursive descent uses call-stack state as its pushdown stack and reports match/reduction steps.
 
 ## API notes
 
