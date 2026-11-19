@@ -27,15 +27,12 @@ const expectedErrorLocations = {
 
 let server;
 let baseUrl;
-let savedRecords;
 
 before(async () => {
-  savedRecords = [];
   const app = express();
   app.use(express.json({ limit: '120kb' }));
   app.use('/api/validate', createValidationRouter({
     authorize: (req, _res, next) => { req.user = { id: 'test-student' }; next(); },
-    saveSubmission: async (record) => { savedRecords.push(record); return { id: `test-${savedRecords.length}` }; },
   }));
   server = app.listen(0, '127.0.0.1');
   await new Promise((resolve) => server.once('listening', resolve));
@@ -46,15 +43,16 @@ after(async () => {
   if (server) await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 });
 
-test('all twelve real parser adapters are available in the runtime catalog', async () => {
+test('all twelve language parsers and both MiniC profiles are available in the runtime catalog', async () => {
   const catalog = await getLanguageCatalog();
-  assert.equal(catalog.length, 12);
+  assert.equal(catalog.length, 14);
   for (const [language] of cases) {
     const entry = catalog.find((item) => item.id === language);
     assert.ok(entry, `catalog contains ${language}`);
     assert.equal(entry.supported, true, `${language} parser loads`);
     assert.ok(entry.parser, `${language} has a named parser`);
   }
+  for (const id of ['minic-core', 'minic-extended']) assert.equal(catalog.find(item => item.id === id)?.supported, true);
 });
 
 for (const [language, validSource, invalidSource] of cases) {
@@ -68,8 +66,9 @@ for (const [language, validSource, invalidSource] of cases) {
     assert.equal(body.errorCount, 0);
     assert.equal(typeof body.processingMs, 'number');
     assert.ok(body.engine);
-    assert.ok(body.ast, 'successful parser returns AST or parse-tree data');
-    assert.ok(body.submissionId);
+    assert.ok(body.ast || body.cst, 'successful parser returns AST or CST data');
+    assert.ok(Array.isArray(body.tokens));
+    assert.ok(Array.isArray(body.trace));
   });
 
   test(`${language}: HTTP validation rejects malformed syntax with line and column`, async () => {
@@ -84,8 +83,8 @@ for (const [language, validSource, invalidSource] of cases) {
     assert.ok(Number.isInteger(body.errors[0].line) && body.errors[0].line >= 1, JSON.stringify(body.errors[0]));
     assert.ok(Number.isInteger(body.errors[0].column) && body.errors[0].column >= 1, JSON.stringify(body.errors[0]));
     assert.deepEqual({ line: body.errors[0].line, column: body.errors[0].column }, expectedErrorLocations[language]);
-    assert.ok(body.ast === null || typeof body.ast === 'object', 'invalid parse may include a recovered concrete syntax tree');
-    assert.ok(body.submissionId);
+    assert.ok(body.ast === null || body.ast === undefined || typeof body.ast === 'object');
+    assert.ok(body.tokens === undefined || Array.isArray(body.tokens));
   });
 }
 
@@ -97,13 +96,8 @@ test('validation rejects unknown identifiers and oversized source without persis
   assert.equal(oversized.status, 413);
 });
 
-test('every validation result and AST is saved in the submission record', () => {
-  assert.equal(savedRecords.length, cases.length * 2);
-  for (const record of savedRecords) {
-    assert.ok(record.student);
-    assert.ok(record.language);
-    assert.ok(record.source);
-    assert.ok(['valid', 'invalid'].includes(record.status));
-    assert.ok(record.engine);
-  }
+test('validation rejects whitespace-only source with a useful field error', async () => {
+  const response = await fetch(baseUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ language: 'javascript', source: '  \n' }) });
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error, /cannot be empty/i);
 });

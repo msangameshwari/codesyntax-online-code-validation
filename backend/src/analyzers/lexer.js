@@ -1,2 +1,8 @@
-const keywords=new Set('const let var function return if else while for class new true false null undefined import from export async await'.split(' '));
-export function lex(source){const out=[];let i=0,line=1,col=1;const add=(type,value,l=line)=>out.push({token:value,type,value,line:l});while(i<source.length){const c=source[i];if(c==='\n'){i++;line++;col=1;continue}if(/\s/.test(c)){i++;col++;continue}const l=line;if(c==='/'&&source[i+1]==='/'){while(i<source.length&&source[i]!=='\n'){i++;col++}continue}if(/[A-Za-z_$]/.test(c)){let s='';while(i<source.length&&/[\w$]/.test(source[i])){s+=source[i++];col++}add(keywords.has(s)?'Keyword':'Identifier',s,l);continue}if(/[0-9]/.test(c)){let s='';while(i<source.length&&/[\d.]/.test(source[i])){s+=source[i++];col++}add('Numeric literal',s,l);continue}if(c==='"'||c==="'"){const q=c;let s=q;i++;col++;let closed=false;while(i<source.length){const x=source[i++];s+=x;col++;if(x==='\\'&&i<source.length){s+=source[i++];col++}else if(x===q){closed=true;break}if(x==='\n'){line++;col=1}}add(closed?'String literal':'Invalid / unterminated string',s,l);continue}const op=['===','!==','=>','==','!=','<=','>=','++','--','&&','||','+=','-=','*=','/='].find(x=>source.startsWith(x,i));if(op){add('Operator',op,l);i+=op.length;col+=op.length;continue}if('+-*/%=<>!&|^~?:'.includes(c)){add('Operator',c,l);i++;col++;continue}if('(){}[];,.:'.includes(c)){add('Separator',c,l);i++;col++;continue}add('Unknown token',c,l);i++;col++}return out}
+import { scanWithDfa } from './dfa.js';
+
+// The teaching lexer and DFA simulator deliberately share this one scanner.
+export function lex(source) {
+  return scanWithDfa(String(source ?? '')).tokens;
+}
+
+export { scanWithDfa };

@@ -1,0 +1,47 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Activity, AlertCircle, Clock3, Globe, Network, Server, Shield, Database, RefreshCw } from 'lucide-react';
+import { api } from '../services/api';
+
+function apiOrigin() { try { return new URL(api.defaults.baseURL, window.location.origin); } catch { return null; } }
+function MetricBars({ logs }) {
+  if (!logs.length) return <div className="empty-state">No network activity recorded.</div>;
+  const entries = [...logs].slice(0, 16).reverse(); const max = Math.max(1, ...entries.map(item => item.durationMs || 0));
+  return <div className="metric-bars" role="img" aria-label="Measured server response duration by recent API request">{entries.map((item, index) => <div className="metric-bar" key={item._id || index} title={`${item.method} ${item.path}: ${item.durationMs} ms`}><span style={{ height: `${Math.max(4, (item.durationMs || 0) / max * 100)}%`, background: item.status >= 400 ? '#ed7180' : '#4b9dff' }}/><small>{item.method}</small></div>)}</div>;
+}
+
+export default function NetworkMonitorPage() {
+  const [logs, setLogs] = useState([]); const [status, setStatus] = useState(null); const [events, setEvents] = useState([]); const [selected, setSelected] = useState(null); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+  async function refresh() {
+    setBusy(true); setError('');
+    const [logResult, statusResult] = await Promise.allSettled([api.get('/network/logs'), api.get('/network/status')]);
+    if (logResult.status === 'fulfilled') setLogs(logResult.value.data); else setError('Request history is unavailable; server health is shown separately.');
+    if (statusResult.status === 'fulfilled') setStatus(statusResult.value.data); else setStatus(statusResult.reason.response?.data || { status: 'unavailable', database: 'unavailable' });
+    setBusy(false);
+  }
+  useEffect(() => {
+    const onEvent = event => setEvents(current => [event.detail, ...current].slice(0, 20));
+    window.addEventListener('cs-response', onEvent); window.addEventListener('cs-failure', onEvent);
+    refresh(); const timer = setInterval(refresh, 30000);
+    return () => { clearInterval(timer); window.removeEventListener('cs-response', onEvent); window.removeEventListener('cs-failure', onEvent); };
+  }, []);
+  const counts = useMemo(() => ({ success: logs.filter(x => x.status < 400).length, client: logs.filter(x => x.status >= 400 && x.status < 500).length, server: logs.filter(x => x.status >= 500).length }), [logs]);
+  const alerts = logs.filter(item => item.status >= 400 || item.durationMs >= 2000).map(item => ({ ...item, kind: item.status >= 500 ? 'Backend request failure' : item.status >= 400 ? 'Client / API error response' : 'Slow response', severity: item.status >= 500 ? 'High' : item.status >= 400 ? 'Medium' : 'Low' }));
+  const healthFailure = Boolean(status && status.status !== 'ok');
+  const endpoint = apiOrigin(); const secure = endpoint?.protocol === 'https:';
+  return <>
+    <div className="page-head"><div><div className="eyebrow">COMPUTER NETWORKS / TELEMETRY</div><h1>Network monitor</h1><p>Measured browser requests, Express API logs, and dependency health. This is application request monitoring, not packet capture.</p></div><button className="btn secondary" onClick={refresh} disabled={busy}><RefreshCw size={15}/>{busy ? 'Refreshing…' : 'Refresh data'}</button></div>
+    {error && <div className="notice"><AlertCircle size={16}/>{error}</div>}
+    <section className="panel"><div className="panel-head"><div><h2>Observed application topology</h2><p>Origins and listener configuration come from the active browser/API settings.</p></div><span className={`status-pill ${status?.status === 'ok' ? 'valid' : 'invalid'}`}>{status?.status || 'loading'}</span></div><div className="topology-flow">
+      <div className="topology-node"><Globe/><b>Student browser</b><small>{window.location.origin}</small><small>Client source port: not exposed by application</small></div><div className="topology-edge"><b>{secure ? 'HTTPS request / response' : 'HTTP request / response'}</b><small>REST + JSON over the configured URL scheme</small><small>TCP transport is deployment-dependent</small></div>
+      <div className="topology-node"><Server/><b>Express API</b><small>{endpoint?.origin || 'API origin unavailable'}</small><small>Configured listen port: {status?.configuredListenPort ?? 'unknown'}</small></div><div className="topology-edge"><b>In-process parsing</b><small>Lexer · parser · validator</small></div>
+      <div className="topology-node"><Network/><b>Parser services</b><small>Same API process</small></div><div className="topology-edge"><b>Mongoose connection</b><small>Managed database endpoint details are not exposed</small></div>
+      <div className="topology-node"><Database/><b>MongoDB</b><small>{status?.database || 'health unknown'}</small><small>IP / database port: not exposed</small></div>
+    </div><div className="notice"><Shield size={16}/><span>Hosting edge, public/private IP addresses, gateway, and client ephemeral ports are not observable from this application. HTTPS status above is inferred from the configured API URL; proxy-to-backend transport is not measured.</span></div></section>
+    <div className="stats-grid net-stats"><div className="stat-card"><Activity/><span>Recorded API requests</span><b>{logs.length}</b></div><div className="stat-card"><Clock3/><span>Successful responses</span><b>{counts.success}</b></div><div className="stat-card"><AlertCircle/><span>4xx responses</span><b>{counts.client}</b></div><div className="stat-card"><Server/><span>5xx responses</span><b>{counts.server}</b></div></div>
+    <div className="dashboard-columns"><section className="panel"><div className="panel-head"><div><h2>Measured response time</h2><p>Server duration in milliseconds for the latest recorded API requests.</p></div></div><MetricBars logs={logs}/></section><section className="panel"><div className="panel-head"><div><h2>Request health</h2><p>Counts calculated from stored NetworkLog records.</p></div></div>{logs.length ? <div className="health-breakdown"><p><span>2xx / 3xx successful</span><b>{counts.success}</b></p><p><span>4xx client/API responses</span><b>{counts.client}</b></p><p><span>5xx backend responses</span><b>{counts.server}</b></p><p><span>Database health</span><b>{status?.database || 'unknown'}</b></p></div> : <div className="empty-state">No network activity recorded.</div>}</section></div>
+    <section className="panel table-panel"><div className="panel-head"><div><h2>Backend request logs</h2><p>Latest 100 persisted records; request bodies and credentials are excluded.</p></div></div>{logs.length ? <table><thead><tr><th>Time</th><th>Method</th><th>Endpoint</th><th>Status</th><th>Server duration</th><th>Request ID</th></tr></thead><tbody>{logs.map(item => <tr key={item._id} onClick={() => setSelected(item)} className="selectable-row"><td>{new Date(item.createdAt).toLocaleString()}</td><td>{item.method}</td><td><code>{item.path}</code></td><td>{item.status}</td><td>{item.durationMs} ms</td><td><code>{item.requestId || 'not recorded'}</code></td></tr>)}</tbody></table> : <div className="empty-state">No network activity recorded.</div>}</section>
+    {selected && <section className="panel"><div className="panel-head"><div><h2>Selected request / response</h2><p>{selected.requestId || 'Request ID unavailable'}</p></div><button className="btn subtle" onClick={() => setSelected(null)}>Close</button></div><p>{selected.method} {selected.path} · HTTP {selected.status} · {selected.durationMs} ms · {new Date(selected.createdAt).toLocaleString()}</p></section>}
+    <div className="dashboard-columns"><section className="panel"><div className="panel-head"><div><h2>Observed events</h2><p>Browser Axios responses measured in this session.</p></div><span className="live-tag"><i/> LIVE</span></div>{events.length ? events.map((event, i) => <div className="log-row" key={`${event.requestId || event.at}-${i}`}><span className="method-pill">{event.method || 'ERR'}</span><code>{event.path}</code><span>{event.status || 'network error'}</span><small>{event.durationMs} ms</small></div>) : <div className="empty-state">Requests will appear as you use the app.</div>}</section><section className="panel"><div className="panel-head"><div><h2>Observed alerts</h2><p>Derived from real records: 4xx/5xx or response ≥ 2,000 ms.</p></div></div>{healthFailure&&<div className="warning-row"><AlertCircle size={15}/>Backend health check reports {status.status}; database: {status.database||'unknown'}.</div>}{alerts.length ? alerts.slice(0, 12).map(item => <div className="log-row" key={item._id}><span className={`status-pill ${item.status >= 500 ? 'invalid' : ''}`}>{item.severity}</span><span>{item.kind}</span><code>{item.method} {item.path}</code><small>{new Date(item.createdAt).toLocaleString()}</small></div>) : !healthFailure&&<div className="empty-state">No monitored issues in the stored request window.</div>}<small className="muted">Alert acknowledgement/reset is unavailable; operational logs remain immutable.</small></section></div>
+    <div className="notice network-note"><Network size={17}/><span>Concepts: DNS resolves the configured hostname; HTTP carries REST requests and JSON responses; HTTPS encrypts browser-to-configured-endpoint traffic when the API URL uses https. Actual packets, IP paths, DNS answers, and edge-to-service connections are not captured here.</span></div>
+  </>;
+}

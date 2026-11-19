@@ -1,0 +1,3 @@
+Syntax valid
+Parser: Tree-sitter C grammar (WASM)
+Execution: unavailable for C submissions

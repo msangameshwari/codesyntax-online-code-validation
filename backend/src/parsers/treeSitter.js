@@ -62,9 +62,18 @@ export async function parseTreeSitter(language, source) {
     if (tree.rootNode.hasError && errors.length === 0) {
       errors.push({ message: 'Syntax error detected by the grammar parser', line: 1, column: 1 });
     }
+    const tokens = [];
+    const leaves = [tree.rootNode];
+    while (leaves.length && tokens.length < 500) {
+      const node = leaves.pop();
+      if (node.childCount === 0 && node.text) tokens.push({ type: node.type, value: node.text.slice(0, 200), line: node.startPosition.row + 1, column: node.startPosition.column + 1 });
+      else for (let i = node.childCount - 1; i >= 0; i--) { const child = node.child(i); if (child) leaves.push(child); }
+    }
     return {
       errors,
-      ast: treeToAst(tree.rootNode, { remaining: 500 }),
+      cst: treeToAst(tree.rootNode, { remaining: 500 }),
+      tokens,
+      recovered: errors.length > 0,
       engine: `Tree-sitter ${language} grammar (WASM)`,
     };
   } finally {

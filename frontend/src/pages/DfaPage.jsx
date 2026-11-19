@@ -1,0 +1,40 @@
+import { useEffect, useState } from 'react';
+import { AlertCircle, CheckCircle2, Play, RotateCcw } from 'lucide-react';
+import { api } from '../services/api';
+
+const positions = {
+  q0: [70, 150], q1: [240, 55], q2: [240, 145], q3: [240, 235], q4: [420, 55], q5: [420, 145], q6: [420, 235], q7: [600, 55], q8: [600, 145], q9: [600, 235], q10: [780, 55], q11: [780, 145], q12: [960, 55], q13: [960, 145], q14: [780, 235], q15: [960, 235], qDead: [70, 315],
+};
+
+export default function DfaPage() {
+  const [machine, setMachine] = useState(null);
+  const [source, setSource] = useState('const value = 12.5 + 3; // DFA input');
+  const [result, setResult] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [showTable, setShowTable] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  useEffect(() => { api.get('/lexer/dfa').then(({ data }) => setMachine(data)).catch(() => setLoadError('DFA definition is unavailable.')); }, []);
+  async function run() {
+    setBusy(true);
+    try { const { data } = await api.post('/lexer/dfa/simulate', { source }); setResult(data); }
+    catch (error) { setLoadError(error.response?.data?.error || 'DFA request failed.'); }
+    finally { setBusy(false); }
+  }
+  const operatorStates = (machine?.states || []).filter(state => state.id.startsWith('qOp'));
+  const statePositions = { ...positions, ...Object.fromEntries(operatorStates.map((state, index) => [state.id, [145 + (index % 6) * 170, 420 + Math.floor(index / 6) * 90]])) };
+  const diagramHeight = Math.max(375, ...Object.values(statePositions).map(([, y]) => y + 55));
+  const edgePath = new Set((result?.trace || []).map(step => `${step.state}-${step.nextState}`));
+  const current = result?.trace?.at(-1)?.nextState || machine?.start;
+  return <>
+    <div className="page-head"><div><div className="eyebrow">FLAT / LEXICAL AUTOMATON</div><h1>DFA simulator</h1><p>A deterministic finite automaton recognizes the JavaScript-subset tokens used by the lexical analyzer. It does not parse program grammar.</p></div><div className="toolbar-actions"><button className="btn secondary" onClick={() => { setResult(null); setSource(''); setLoadError(''); }}><RotateCcw size={15}/>Reset</button><button className="btn primary" onClick={run} disabled={busy || !machine}><Play size={15}/>{busy ? 'Tracing…' : 'Run DFA'}</button></div></div>
+    {loadError && <div className="notice"><AlertCircle size={16}/>{loadError}</div>}
+    <section className="panel"><div className="panel-head"><div><h2>Input source</h2><p>Identifiers and keywords, integer and float literals, operators, delimiters, strings, whitespace, and line comments.</p></div></div><textarea className="code-input" aria-label="DFA source input" value={source} onChange={event => { setSource(event.target.value); setResult(null); }}/><div className="toolbar-actions dfa-samples"><button className="btn subtle" onClick={() => { setSource('let score = 42;'); setResult(null); }}>Identifier</button><button className="btn subtle" onClick={() => { setSource('const rate = 3.14 + 2;'); setResult(null); }}>Float / operator</button><button className="btn subtle" onClick={() => { setSource('let x = 1; @'); setResult(null); }}>Invalid character</button></div></section>
+    {machine && <section className="panel dfa-panel"><div className="panel-head"><div><h2>State diagram</h2><p>State and transition data come from the same backend definition used by the scanner.</p></div><span className="muted-tag">START {machine.start} · CURRENT {current}</span></div><div className="dfa-scroll"><svg viewBox={`0 0 1100 ${diagramHeight}`} role="img" aria-label="DFA lexical state transition diagram" className="dfa-svg"><defs><marker id="dfa-arrow" markerWidth="8" markerHeight="7" refX="7" refY="3.5" orient="auto"><path d="M0 0 L8 3.5 L0 7 z" fill="#67839e"/></marker><marker id="dfa-arrow-active" markerWidth="8" markerHeight="7" refX="7" refY="3.5" orient="auto"><path d="M0 0 L8 3.5 L0 7 z" fill="#55d6b0"/></marker></defs>
+      {machine.transitions.map(([from, label, to], index) => { const [x1, y1] = statePositions[from] || [40, 280]; const target = to.split(' / ')[0]; const [x2, y2] = statePositions[target] || [40, 280]; const active = edgePath.has(`${from}-${target}`); return from === target ? <g key={`${from}-${label}-${index}`}><path d={`M${x1 - 15},${y1 - 24} C${x1 - 52},${y1 - 78} ${x1 + 52},${y1 - 78} ${x1 + 15},${y1 - 24}`} fill="none" stroke={active ? '#55d6b0' : '#45617b'} strokeWidth="2" markerEnd={`url(#${active ? 'dfa-arrow-active' : 'dfa-arrow'})`}/><text x={x1} y={y1 - 70} textAnchor="middle" className="dfa-edge-label">{label}</text></g> : <g key={`${from}-${label}-${index}`}><path d={`M${x1 + 25},${y1} L${x2 - 28},${y2}`} fill="none" stroke={active ? '#55d6b0' : '#45617b'} strokeWidth="2" markerEnd={`url(#${active ? 'dfa-arrow-active' : 'dfa-arrow'})`}/><text x={(x1 + x2) / 2} y={(y1 + y2) / 2 - 5 + (index % 2) * 12} textAnchor="middle" className="dfa-edge-label">{label}</text></g>; })}
+      {machine.states.map(state => { const [x, y] = statePositions[state.id] || [40, 280]; return <g key={state.id}><circle cx={x} cy={y} r="24" className={`dfa-state ${state.kind} ${current === state.id ? 'active' : ''}`}/>{state.kind === 'accept' && <circle cx={x} cy={y} r="19" className="dfa-final-ring"/>}{state.id === machine.start && <path d={`M${x - 58},${y} L${x - 27},${y}`} stroke="#8cc5ff" strokeWidth="2" markerEnd="url(#dfa-arrow-active)"/>}<text x={x} y={y + 4} textAnchor="middle" className="dfa-state-text">{state.id}</text><text x={x} y={y + 40} textAnchor="middle" className="dfa-state-label">{state.label}</text></g>; })}
+    </svg></div><div className="legend"><span>Start: blue</span><span>Accepting: double circle</span><span>Error: red</span><span>Traversed edge: green</span></div></section>}
+    {result && <><div className={`parse-status ${result.errors.length ? 'rejected' : 'accepted'}`}>{result.errors.length ? <AlertCircle size={16}/> : <CheckCircle2 size={16}/>} {result.errors.length ? `${result.errors.length} lexical issue(s)` : 'DFA scan completed'}{result.traceTruncated && <small>Trace output capped at 2,000 steps.</small>}</div>{result.errors.map((error, index) => <div className="error-row" key={index}><b>{error.message}</b><small>Line {error.line}, column {error.column}</small></div>)}
+      <section className="panel table-panel"><div className="panel-head"><div><h2>Token output</h2><p>The same scanner powers the Lexical Analyzer page.</p></div><button className="btn subtle" onClick={() => setShowTable(value => !value)}>{showTable ? 'Hide' : 'Show'} transition table</button></div><table><thead><tr><th>Token</th><th>Type</th><th>Value</th><th>Line</th><th>Column</th></tr></thead><tbody>{result.tokens.map((token, index) => <tr key={index}><td><code>{token.token}</code></td><td>{token.type}</td><td>{token.value}</td><td>{token.line}</td><td>{token.column}</td></tr>)}</tbody></table>{showTable && <><h3>Transition table</h3><table><thead><tr><th>Current</th><th>Input class</th><th>Next state</th><th>Action / token</th><th>Final?</th></tr></thead><tbody>{machine.transitions.map(([from, input, to], index) => <tr key={index}><td>{from}</td><td>{input}</td><td>{to}</td><td>{machine.states.find(state => state.id === to)?.token || 'Transition'}</td><td>{machine.accepting.includes(to) ? 'Yes' : 'No'}</td></tr>)}</tbody></table></>}</section>
+      <section className="panel table-panel"><div className="panel-head"><div><h2>Character transition trace</h2><p>Input position, state transition, and acceptance.</p></div></div><table><thead><tr><th>Step</th><th>Character</th><th>Position</th><th>Current</th><th>Input class</th><th>Next</th><th>Accepting</th></tr></thead><tbody>{result.trace.slice(0, 250).map(step => <tr key={step.step}><td>{step.step}</td><td><code>{JSON.stringify(step.character)}</code></td><td>{step.line}:{step.column}</td><td>{step.state}</td><td>{step.inputClass}</td><td>{step.nextState}</td><td>{step.accepting ? 'Yes' : 'No'}</td></tr>)}</tbody></table></section></>}
+  </>;
+}

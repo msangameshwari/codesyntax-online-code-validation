@@ -1,0 +1,5 @@
+Syntax invalid
+Example diagnostic: missing ';' after return statement
+Line: 2
+Column: parser-reported source position
+Execution: skipped because syntax is invalid

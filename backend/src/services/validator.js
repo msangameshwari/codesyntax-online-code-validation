@@ -12,6 +12,7 @@ import { validateGo } from '../parsers/adapters/go.js';
 import { validateSql } from '../parsers/adapters/sql.js';
 import { compactAst } from '../parsers/ast.js';
 import { checkTreeSitterGrammars } from '../parsers/treeSitter.js';
+import { parseMiniC } from '../parsers/minic.js';
 
 const definitions = [
   { id: 'javascript', name: 'JavaScript', extensions: ['.js', '.jsx'], parser: 'Babel JavaScript parser', validate: validateJavaScript },
@@ -26,6 +27,8 @@ const definitions = [
   { id: 'csharp', name: 'C#', extensions: ['.cs'], parser: 'Tree-sitter C# grammar (WASM)', validate: validateCsharp },
   { id: 'go', name: 'Go', extensions: ['.go'], parser: 'Tree-sitter Go grammar (WASM)', validate: validateGo },
   { id: 'sql', name: 'SQL (PostgreSQL)', extensions: ['.sql'], parser: 'pgsql-ast-parser (PostgreSQL SQL grammar)', validate: validateSql },
+  { id: 'minic-core', name: 'MiniC Core (Assessment)', extensions: ['.mc'], parser: 'MiniC Core recursive descent parser', validate: (source) => parseMiniC(source, 'core') },
+  { id: 'minic-extended', name: 'MiniC Extended', extensions: ['.mc'], parser: 'MiniC Extended recursive descent parser', validate: (source) => parseMiniC(source, 'extended') },
 ];
 const byId = new Map(definitions.map((item) => [item.id, item]));
 let catalogPromise;
@@ -53,8 +56,9 @@ function syntaxError(error) {
 export async function validateSource(languageId, source) {
   const definition = byId.get(languageId);
   if (!definition) return { ok: false, statusCode: 400, error: 'Unknown language identifier' };
-  if (typeof source !== 'string') return { ok: false, statusCode: 400, error: 'Source must be a string' };
-  if (Buffer.byteLength(source, 'utf8') > 100_000) return { ok: false, statusCode: 413, error: 'Source limit is 100 KB' };
+  if (typeof source !== 'string') return { ok: false, statusCode: 400, error: 'Source must be a string', fields: { source: 'Enter source code.' } };
+  if (Buffer.byteLength(source, 'utf8') > 100_000) return { ok: false, statusCode: 413, error: 'Source limit is 100 KB', fields: { source: 'Keep source code under 100 KB.' } };
+  if (!source.trim()) return { ok: false, statusCode: 400, error: 'Source code cannot be empty', fields: { source: 'Enter source code before validating.' } };
   const catalog = await getLanguageCatalog();
   const language = catalog.find((item) => item.id === languageId);
   if (!language?.supported) return { ok: false, statusCode: 422, error: `${definition.name} parser is unavailable`, parser: language?.error || null };
@@ -62,7 +66,7 @@ export async function validateSource(languageId, source) {
   try {
     const parsed = await definition.validate(source);
     const errors = parsed.errors || [];
-    return { ok: true, result: { language: languageId, status: errors.length ? 'invalid' : 'valid', errors, errorCount: errors.length, warnings: [], processingMs: +(performance.now() - startedAt).toFixed(2), engine: parsed.engine || definition.parser, ast: compactAst(parsed.ast) } };
+    return { ok: true, result: { language: languageId, status: errors.length ? 'invalid' : 'valid', errors, errorCount: errors.length, warnings: [], tokens: parsed.tokens || [], trace: parsed.trace || [], processingMs: +(performance.now() - startedAt).toFixed(2), engine: parsed.engine || definition.parser, cst: compactAst(parsed.cst), cstRecovered: Boolean(parsed.recovered), ast: compactAst(parsed.ast) } };
   } catch (error) {
     return { ok: true, result: { language: languageId, status: 'invalid', errors: [syntaxError(error)], errorCount: 1, warnings: [], processingMs: +(performance.now() - startedAt).toFixed(2), engine: definition.parser, ast: null } };
   }
